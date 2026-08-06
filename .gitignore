@@ -1,0 +1,31 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Env / secrets
+.env
+.env.*
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Project-specific
+*.db
+*.sqlite3

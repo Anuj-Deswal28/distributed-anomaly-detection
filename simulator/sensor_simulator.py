@@ -1,18 +1,3 @@
-"""
-Day 2 sensor simulator.
-
-Generates synthetic readings for three sensor types (temperature, traffic,
-network throughput) on a fixed interval, with a configurable chance of
-injecting a labeled anomaly into each reading.
-
-This version prints JSON lines to stdout. MQTT publishing gets wired in
-next (Week 1.5-2) -- keeping this stage isolated lets you verify the data
-generation logic looks right before adding networking on top of it.
-
-Run:
-    python sensor_simulator.py --anomaly-rate 0.02 --interval 1.0
-"""
-
 import argparse
 import asyncio
 import json
@@ -20,6 +5,8 @@ import math
 import random
 import time
 from dataclasses import dataclass, asdict
+
+import paho.mqtt.client as mqtt
 
 
 @dataclass
@@ -99,20 +86,44 @@ class ThroughputSensor(SensorSimulator):
         return value, False
 
 
-async def run_sensor(sensor: SensorSimulator, interval: float):
+def make_mqtt_client(host: str, port: int) -> mqtt.Client:
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+
+    def on_connect(client, userdata, flags, reason_code, properties):
+        if reason_code == 0:
+            print(f"[mqtt] connected to {host}:{port}")
+        else:
+            print(f"[mqtt] connection failed: {reason_code}")
+
+    client.on_connect = on_connect
+    client.connect(host, port, keepalive=60)
+    client.loop_start()
+    return client
+
+
+async def run_sensor(sensor: SensorSimulator, interval: float, client: mqtt.Client):
+    topic = f"sensors/{sensor.sensor_type}"
     while True:
         reading = sensor.next_reading()
-        print(json.dumps(asdict(reading)))
+        payload = json.dumps(asdict(reading))
+        print(payload)
+        client.publish(topic, payload, qos=0)
         await asyncio.sleep(interval)
 
 
-async def main(anomaly_rate: float, interval: float):
+async def main(anomaly_rate: float, interval: float, mqtt_host: str, mqtt_port: int):
+    client = make_mqtt_client(mqtt_host, mqtt_port)
+
     sensors = [
         TemperatureSensor("temp-01", "temperature", anomaly_rate),
         TrafficSensor("traffic-01", "traffic", anomaly_rate),
         ThroughputSensor("throughput-01", "network_throughput", anomaly_rate),
     ]
-    await asyncio.gather(*(run_sensor(s, interval) for s in sensors))
+    try:
+        await asyncio.gather(*(run_sensor(s, interval, client) for s in sensors))
+    finally:
+        client.loop_stop()
+        client.disconnect()
 
 
 if __name__ == "__main__":
@@ -121,9 +132,13 @@ if __name__ == "__main__":
                          help="Probability [0-1] a reading is anomalous")
     parser.add_argument("--interval", type=float, default=1.0,
                          help="Seconds between readings per sensor")
+    parser.add_argument("--mqtt-host", type=str, default="localhost",
+                         help="MQTT broker host")
+    parser.add_argument("--mqtt-port", type=int, default=1883,
+                         help="MQTT broker port")
     args = parser.parse_args()
 
     try:
-        asyncio.run(main(args.anomaly_rate, args.interval))
+        asyncio.run(main(args.anomaly_rate, args.interval, args.mqtt_host, args.mqtt_port))
     except KeyboardInterrupt:
         print("\nStopped.")

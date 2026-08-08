@@ -13,7 +13,7 @@ npm-debug.log*
 # Env / secrets
 .env
 .env.*
-
+anomaly-env/
 *.log
 
 # OS

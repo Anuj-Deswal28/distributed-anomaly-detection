@@ -10,7 +10,7 @@ __pycache__/
 node_modules/
 npm-debug.log*
 
-# Env / secrets
+
 .env
 .env.*
 anomaly-env/

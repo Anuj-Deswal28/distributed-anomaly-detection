@@ -1,19 +1,3 @@
-"""
-Day 4 FastAPI backend.
-
-Subscribes to all sensor topics on MQTT (sensors/#) and republishes each
-reading into a Redis pub/sub channel ("sensor_readings"). This is the
-decoupling point: MQTT ingestion and downstream AI processing never talk
-directly to each other -- both only ever talk to Redis.
-
-Also exposes a couple of basic HTTP endpoints for sanity-checking the
-service is alive.
-
-Run:
-    uvicorn app.main:app --reload --port 8000
-(from the backend/ folder, with Redis + Mosquitto running via docker compose)
-"""
-
 import json
 import os
 from contextlib import asynccontextmanager
@@ -43,9 +27,6 @@ def on_connect(client, userdata, flags, reason_code, properties):
 
 
 def on_message(client, userdata, msg):
-    """Every MQTT message that arrives gets pushed straight into Redis,
-    unchanged. FastAPI does no processing here -- that's the AI engine's
-    job, running as a completely separate process/consumer."""
     payload = msg.payload.decode()
     redis_client.publish(REDIS_CHANNEL, payload)
     stats["messages_relayed"] += 1

@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import math
+import os
 import random
 import time
 from dataclasses import dataclass, asdict
@@ -44,7 +45,7 @@ class TemperatureSensor(SensorSimulator):
 
     def generate_value(self) -> tuple[float, bool]:
         elapsed = time.time() - self.start_time
-        baseline = 22 + 5 * math.sin(elapsed / 60)  
+        baseline = 22 + 5 * math.sin(elapsed / 60)
         noise = random.gauss(0, 0.3)
         value = baseline + noise
 
@@ -55,6 +56,7 @@ class TemperatureSensor(SensorSimulator):
 
 
 class TrafficSensor(SensorSimulator):
+
     def generate_value(self) -> tuple[float, bool]:
         elapsed = time.time() - self.start_time
         baseline = 50 + 30 * max(0, math.sin(elapsed / 45))
@@ -63,8 +65,8 @@ class TrafficSensor(SensorSimulator):
 
         if random.random() < self.anomaly_rate:
             if random.random() < 0.5:
-                return value * random.uniform(4, 8), True   
-            return 0.0, True                                
+                return value * random.uniform(4, 8), True
+            return 0.0, True
         return value, False
 
 
@@ -127,9 +129,9 @@ if __name__ == "__main__":
                          help="Probability [0-1] a reading is anomalous")
     parser.add_argument("--interval", type=float, default=1.0,
                          help="Seconds between readings per sensor")
-    parser.add_argument("--mqtt-host", type=str, default="localhost",
+    parser.add_argument("--mqtt-host", type=str, default=os.getenv("MQTT_HOST", "localhost"),
                          help="MQTT broker host")
-    parser.add_argument("--mqtt-port", type=int, default=1883,
+    parser.add_argument("--mqtt-port", type=int, default=int(os.getenv("MQTT_PORT", "1883")),
                          help="MQTT broker port")
     args = parser.parse_args()
 

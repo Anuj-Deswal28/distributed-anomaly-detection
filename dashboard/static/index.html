@@ -2,98 +2,441 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Anomaly Detection Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distributed Anomaly Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
+  :root {
+    --bg: #0A0C11;
+    --bg-panel: #12151C;
+    --bg-panel-alt: #161A22;
+    --border: #232733;
+    --border-strong: #343A4A;
+    --text-primary: #E7E9EE;
+    --text-secondary: #8A8F9C;
+    --text-muted: #565C6B;
+    --teal: #3FC7B0;
+    --teal-dim: rgba(63, 199, 176, 0.14);
+    --amber: #F0A93C;
+    --amber-dim: rgba(240, 169, 60, 0.14);
+    --red: #E2574C;
+    --red-dim: rgba(226, 87, 76, 0.14);
+    --tag-temp: #8C99EE;
+    --tag-traffic: #5FC2E8;
+    --tag-throughput: #C398EE;
+  }
+
+  * { box-sizing: border-box; }
+
   body {
-    background: #111318;
-    color: #e6e6e6;
-    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: 'Space Grotesk', sans-serif;
     margin: 0;
-    padding: 24px;
+    padding: 32px 28px 48px;
+    position: relative;
+    min-height: 100vh;
   }
-  h1 { font-size: 20px; font-weight: 500; margin: 0 0 4px; }
-  .status { font-size: 13px; color: #9a9a9a; margin-bottom: 20px; }
-  .status.connected { color: #5dcaa5; }
-  .status.disconnected { color: #e24b4a; }
-  .chart-card {
-    background: #1a1d24;
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.012) 0px,
+      rgba(255,255,255,0.012) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    z-index: 0;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; position: relative; z-index: 1; }
+
+  .mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+  /* Top bar */
+  .topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .brand { display: flex; align-items: center; gap: 14px; }
+
+  .brand-mark {
+    width: 40px; height: 40px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin: 0;
+  }
+
+  .tagline {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    margin: 4px 0 0;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: var(--bg-panel);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+  }
+
+  .led {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .led.live {
+    background: var(--teal);
+    box-shadow: 0 0 8px var(--teal);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  .led.down {
+    background: var(--red);
+    box-shadow: 0 0 8px var(--red);
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .led.live { animation: none; }
+  }
+
+  /* Pulse waveform strip */
+  .pulse-strip {
+    margin: 22px 0 26px;
+    height: 40px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+    position: relative;
+  }
+  .pulse-strip svg {
+    position: absolute;
+    top: 0; left: 0;
+    height: 100%;
+    width: 200%;
+    animation: scroll-wave 9s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse-strip svg { animation: none; }
+  }
+  @keyframes scroll-wave {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+
+  .stat-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 16px 20px;
-    margin-bottom: 20px;
+    padding: 16px 18px;
   }
-  .chart-card h2 { font-size: 14px; font-weight: 500; margin: 0 0 12px; color: #cfcfcf; }
-  .legend { font-size: 12px; color: #9a9a9a; display: flex; gap: 16px; margin-top: 8px; }
-  .legend span { display: inline-flex; align-items: center; gap: 5px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  .stat-value {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1.1;
+  }
+  .stat-card.amber .stat-value { color: var(--amber); }
+  .stat-card.red .stat-value { color: var(--red); }
+
+  .stat-label {
+    display: block;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Panels */
+  .panels {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px 10px;
+    opacity: 0;
+    animation: rise 0.5s ease forwards;
+    transition: border-color 0.2s;
+    min-width: 0;
+  }
+  .panel:hover { border-color: var(--border-strong); }
+  .panel:nth-child(1) { animation-delay: 0.05s; }
+  .panel:nth-child(2) { animation-delay: 0.15s; }
+  .panel:nth-child(3) { animation-delay: 0.25s; }
+
+  @media (max-width: 860px) {
+    .panels { grid-template-columns: 1fr; }
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .panel { animation: none; opacity: 1; }
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .panel-id {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+  }
+
+  .tag {
+    width: 7px; height: 7px;
+    border-radius: 2px;
+  }
+  .tag-temp { background: var(--tag-temp); }
+  .tag-traffic { background: var(--tag-traffic); }
+  .tag-throughput { background: var(--tag-throughput); }
+
+  .panel-reading {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 17px;
+    font-weight: 500;
+  }
+  .panel-reading .unit {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 3px;
+    font-weight: 400;
+  }
+
+  .chart-box { height: 150px; }
+  canvas { width: 100% !important; height: 100% !important; }
+
+  .panel-foot {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-muted);
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 22px;
+    flex-wrap: wrap;
+    margin-top: 24px;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-panel);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 </style>
 </head>
 <body>
-  <h1>Distributed real-time anomaly detection</h1>
-  <div id="status" class="status disconnected">Connecting...</div>
+<div class="wrap">
 
-  <div class="chart-card">
-    <h2>Temperature</h2>
-    <canvas id="chart-temperature" height="90"></canvas>
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M1 10H5L7 4L11 16L13 10H19" stroke="#3FC7B0" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <h1>DISTRIBUTED ANOMALY DETECTION</h1>
+        <p class="tagline">real-time telemetry · z-score + isolation forest</p>
+      </div>
+    </div>
+    <div class="status-pill">
+      <span class="led" id="led"></span>
+      <span id="status-text">CONNECTING</span>
+    </div>
   </div>
-  <div class="chart-card">
-    <h2>Traffic</h2>
-    <canvas id="chart-traffic" height="90"></canvas>
+
+  <div class="pulse-strip">
+    <svg viewBox="0 0 400 40" preserveAspectRatio="none">
+      <path d="M0,20 L30,20 L36,6 L42,34 L48,20 L80,20 L86,10 L92,30 L98,20 L200,20 L230,20 L236,6 L242,34 L248,20 L280,20 L286,10 L292,30 L298,20 L400,20"
+        fill="none" stroke="#3FC7B0" stroke-width="1" opacity="0.55"/>
+    </svg>
   </div>
-  <div class="chart-card">
-    <h2>Network throughput</h2>
-    <canvas id="chart-network_throughput" height="90"></canvas>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <span class="stat-value mono" id="stat-total">0</span>
+      <span class="stat-label">READINGS</span>
+    </div>
+    <div class="stat-card amber">
+      <span class="stat-value mono" id="stat-detected">0</span>
+      <span class="stat-label">DETECTED</span>
+    </div>
+    <div class="stat-card red">
+      <span class="stat-value mono" id="stat-missed">0</span>
+      <span class="stat-label">MISSED</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value mono" id="stat-uptime">00:00</span>
+      <span class="stat-label">SESSION</span>
+    </div>
   </div>
+
+  <div class="panels">
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-id"><span class="tag tag-temp"></span>TEMP-01</div>
+        <div class="panel-reading"><span class="mono" id="reading-temperature">--</span><span class="unit">&deg;C</span></div>
+      </div>
+      <div class="chart-box"><canvas id="chart-temperature"></canvas></div>
+      <div class="panel-foot"><span class="mono" id="flags-temperature">0 flagged</span></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-id"><span class="tag tag-traffic"></span>TRAFFIC-01</div>
+        <div class="panel-reading"><span class="mono" id="reading-traffic">--</span><span class="unit">req/s</span></div>
+      </div>
+      <div class="chart-box"><canvas id="chart-traffic"></canvas></div>
+      <div class="panel-foot"><span class="mono" id="flags-traffic">0 flagged</span></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-id"><span class="tag tag-throughput"></span>THROUGHPUT-01</div>
+        <div class="panel-reading"><span class="mono" id="reading-network_throughput">--</span><span class="unit">Mb/s</span></div>
+      </div>
+      <div class="chart-box"><canvas id="chart-network_throughput"></canvas></div>
+      <div class="panel-foot"><span class="mono" id="flags-network_throughput">0 flagged</span></div>
+    </section>
+  </div>
+
   <div class="legend">
-    <span><span class="dot" style="background:#378ADD"></span>normal</span>
-    <span><span class="dot" style="background:#E24B4A"></span>detected anomaly (z-score or Isolation Forest)</span>
-    <span><span class="dot" style="background:#EF9F27"></span>missed (ground truth anomaly, not detected)</span>
+    <span><span class="dot" style="background:#3FC7B0"></span>normal</span>
+    <span><span class="dot" style="background:#F0A93C"></span>detected anomaly</span>
+    <span><span class="dot" style="background:#E2574C"></span>missed (ground truth, undetected)</span>
   </div>
+
+</div>
 
 <script>
 const MAX_POINTS = 60;
 const sensorTypes = ["temperature", "traffic", "network_throughput"];
 const charts = {};
 const buffers = {};
+const stats = { total: 0, detected: 0, missed: 0 };
+const perSensorFlags = { temperature: 0, traffic: 0, network_throughput: 0 };
+
+const COLOR_NORMAL = "#3FC7B0";
+const COLOR_DETECTED = "#F0A93C";
+const COLOR_MISSED = "#E2574C";
+
+function makeGradient(ctx, color) {
+  const g = ctx.createLinearGradient(0, 0, 0, 100);
+  g.addColorStop(0, color + "33");
+  g.addColorStop(1, color + "00");
+  return g;
+}
 
 for (const type of sensorTypes) {
   buffers[type] = { labels: [], values: [], colors: [] };
-  const ctx = document.getElementById("chart-" + type).getContext("2d");
+  const canvas = document.getElementById("chart-" + type);
+  const ctx = canvas.getContext("2d");
   charts[type] = new Chart(ctx, {
     type: "line",
     data: {
       labels: [],
       datasets: [{
         data: [],
-        borderColor: "#378ADD",
+        borderColor: COLOR_NORMAL,
         borderWidth: 1.5,
+        backgroundColor: makeGradient(ctx, COLOR_NORMAL),
+        fill: true,
         pointBackgroundColor: [],
+        pointBorderColor: "#12151C",
+        pointBorderWidth: 1,
         pointRadius: [],
         pointHoverRadius: 5,
-        tension: 0.2,
+        tension: 0.3,
       }]
     },
     options: {
       animation: false,
       responsive: true,
+      maintainAspectRatio: false,
       scales: {
         x: { display: false },
-        y: { ticks: { color: "#9a9a9a" }, grid: { color: "#2a2d35" } }
+        y: {
+          ticks: { color: "#565C6B", font: { family: "JetBrains Mono", size: 10 } },
+          grid: { color: "#1C2029" }
+        }
       },
-      plugins: { legend: { display: false } }
+      plugins: { legend: { display: false }, tooltip: { enabled: false } }
     }
   });
 }
 
 function pointColor(reading) {
   const detected = reading.zscore_anomaly || reading.iforest_anomaly;
-  if (detected) return "#E24B4A";
-  if (reading.is_anomaly) return "#EF9F27"; // ground truth but missed by both detectors
-  return "#378ADD";
+  if (detected) return COLOR_DETECTED;
+  if (reading.is_anomaly) return COLOR_MISSED;
+  return COLOR_NORMAL;
 }
 
-function pointRadius(reading) {
-  return (reading.zscore_anomaly || reading.iforest_anomaly || reading.is_anomaly) ? 4 : 1.5;
+function formatValue(type, value) {
+  return value.toFixed(1);
 }
 
 function addReading(reading) {
@@ -103,10 +446,11 @@ function addReading(reading) {
 
   const buf = buffers[type];
   const label = new Date(reading.timestamp * 1000).toLocaleTimeString();
+  const color = pointColor(reading);
 
   buf.labels.push(label);
   buf.values.push(reading.value);
-  buf.colors.push(pointColor(reading));
+  buf.colors.push(color);
 
   if (buf.labels.length > MAX_POINTS) {
     buf.labels.shift();
@@ -117,33 +461,57 @@ function addReading(reading) {
   chart.data.labels = buf.labels;
   chart.data.datasets[0].data = buf.values;
   chart.data.datasets[0].pointBackgroundColor = buf.colors;
-  chart.data.datasets[0].pointRadius = buf.values.map((_, i) =>
-    buf.colors[i] === "#378ADD" ? 1.5 : 4
-  );
+  chart.data.datasets[0].pointRadius = buf.colors.map(c => c === COLOR_NORMAL ? 1.5 : 4);
   chart.update("none");
+
+  document.getElementById("reading-" + type).textContent = formatValue(type, reading.value);
+
+  stats.total++;
+  if (reading.zscore_anomaly || reading.iforest_anomaly) {
+    stats.detected++;
+    perSensorFlags[type]++;
+  } else if (reading.is_anomaly) {
+    stats.missed++;
+    perSensorFlags[type]++;
+  }
+
+  document.getElementById("stat-total").textContent = stats.total;
+  document.getElementById("stat-detected").textContent = stats.detected;
+  document.getElementById("stat-missed").textContent = stats.missed;
+  document.getElementById("flags-" + type).textContent = perSensorFlags[type] + " flagged";
+}
+
+const sessionStart = Date.now();
+setInterval(() => {
+  const elapsed = Math.floor((Date.now() - sessionStart) / 1000);
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+  const ss = String(elapsed % 60).padStart(2, "0");
+  document.getElementById("stat-uptime").textContent = `${mm}:${ss}`;
+}, 1000);
+
+function setStatus(state) {
+  const led = document.getElementById("led");
+  const text = document.getElementById("status-text");
+  led.className = "led " + (state === "live" ? "live" : state === "down" ? "down" : "");
+  text.textContent = state === "live" ? "LIVE" : state === "down" ? "DISCONNECTED" : "CONNECTING";
 }
 
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws/dashboard`);
-  const statusEl = document.getElementById("status");
 
-  ws.onopen = () => {
-    statusEl.textContent = "Connected, waiting for readings...";
-    statusEl.className = "status connected";
-  };
+  ws.onopen = () => setStatus("connecting");
   ws.onmessage = (event) => {
     try {
       const reading = JSON.parse(event.data);
       addReading(reading);
-      statusEl.textContent = "Connected · live";
+      setStatus("live");
     } catch (e) {
       console.error("bad message", e);
     }
   };
   ws.onclose = () => {
-    statusEl.textContent = "Disconnected, retrying in 3s...";
-    statusEl.className = "status disconnected";
+    setStatus("down");
     setTimeout(connect, 3000);
   };
   ws.onerror = () => ws.close();

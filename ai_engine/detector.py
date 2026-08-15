@@ -9,14 +9,15 @@ from sklearn.ensemble import IsolationForest
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_CHANNEL = "sensor_readings"
+ANALYZED_CHANNEL = "sensor_analyzed"
 
-WINDOW_SIZE = 200          # how many recent readings to keep per sensor type
-MIN_TRAIN_SIZE = 50        # minimum readings before Isolation Forest can fit
-RETRAIN_EVERY = 50         # retrain IF after this many new readings
-Z_SCORE_THRESHOLD = 3.0    # flag if |z| exceeds this
-SUMMARY_EVERY = 100        # print precision/recall every N total readings
-IFOREST_CONTAMINATION = 0.05  # expected anomaly rate; matches simulator default
-LOCAL_SPAN = 10            # window for local trend, used to detrend before Isolation Forest
+WINDOW_SIZE = 200
+MIN_TRAIN_SIZE = 50
+RETRAIN_EVERY = 50
+Z_SCORE_THRESHOLD = 3.0
+SUMMARY_EVERY = 100
+IFOREST_CONTAMINATION = 0.05
+LOCAL_SPAN = 10
 
 
 def causal_moving_average(arr: np.ndarray, span: int) -> np.ndarray:
@@ -28,7 +29,6 @@ def causal_moving_average(arr: np.ndarray, span: int) -> np.ndarray:
 
 
 class Scoreboard:
-
     def __init__(self, name: str):
         self.name = name
         self.tp = self.fp = self.tn = self.fn = 0
@@ -58,7 +58,6 @@ class Scoreboard:
 
 
 class SensorDetector:
-
     def __init__(self, sensor_type: str):
         self.sensor_type = sensor_type
         self.window = deque(maxlen=WINDOW_SIZE)
@@ -69,7 +68,7 @@ class SensorDetector:
 
     def zscore_flag(self, value: float) -> bool:
         if len(self.window) < 10:
-            return False  
+            return False
         mean = np.mean(self.window)
         std = np.std(self.window)
         if std == 0:
@@ -84,10 +83,9 @@ class SensorDetector:
             return
 
         window_arr = np.array(self.window)
-
         local_trend = causal_moving_average(window_arr, LOCAL_SPAN)
         residuals = window_arr - local_trend
-        
+
         mean, std = np.mean(residuals), np.std(residuals)
         if std > 0:
             z_scores = np.abs((residuals - mean) / std)
@@ -96,7 +94,7 @@ class SensorDetector:
             clean = residuals
 
         if len(clean) < MIN_TRAIN_SIZE // 2:
-            return  
+            return
 
         X = clean.reshape(-1, 1)
         self.model = IsolationForest(
@@ -116,7 +114,7 @@ class SensorDetector:
         if self.model is None:
             return False
         residual = self.local_residual(value)
-        prediction = self.model.predict([[residual]]) 
+        prediction = self.model.predict([[residual]])
         return prediction[0] == -1
 
     def process(self, value: float, actual_anomaly: bool):
@@ -151,7 +149,7 @@ def print_summary():
     print("-" * 40)
 
 
-def handle_reading(raw_payload: str):
+def handle_reading(raw_payload: str, publisher: redis.Redis):
     global total_readings
     try:
         reading = json.loads(raw_payload)
@@ -165,6 +163,13 @@ def handle_reading(raw_payload: str):
 
     detector = get_detector(sensor_type)
     zscore_pred, iforest_pred = detector.process(value, actual_anomaly)
+
+    analyzed = {
+        **reading,
+        "zscore_anomaly": bool(zscore_pred),
+        "iforest_anomaly": bool(iforest_pred),
+    }
+    publisher.publish(ANALYZED_CHANNEL, json.dumps(analyzed))
 
     total_readings += 1
     if zscore_pred or iforest_pred or actual_anomaly:
@@ -182,12 +187,12 @@ def main():
     r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     pubsub = r.pubsub()
     pubsub.subscribe(REDIS_CHANNEL)
-    print(f"[ai_engine] subscribed to Redis channel '{REDIS_CHANNEL}', waiting for readings...")
+    print(f"[ai_engine] subscribed to '{REDIS_CHANNEL}', publishing results to '{ANALYZED_CHANNEL}'...")
 
     for message in pubsub.listen():
         if message["type"] != "message":
             continue
-        handle_reading(message["data"])
+        handle_reading(message["data"], r)
 
 
 if __name__ == "__main__":

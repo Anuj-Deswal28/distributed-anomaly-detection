@@ -1,20 +1,41 @@
-import json
+"""
+FastAPI backend.
+
+Two jobs:
+  1. Subscribe to MQTT (sensors/#) and republish each reading into Redis on
+     the "sensor_readings" channel -- unchanged from Day 4.
+  2. Expose a WebSocket at /ws/dashboard that subscribes to Redis on the
+     "sensor_analyzed" channel (published by ai_engine/detector.py) and
+     forwards each message to any connected browser in real time.
+
+FastAPI never processes sensor data itself -- it's a relay in both
+directions. That keeps ingestion, AI processing, and the dashboard as
+three independently swappable pieces, all only ever talking through Redis.
+
+Run:
+    uvicorn app.main:app --reload --port 8000
+(from the backend/ folder, with Redis + Mosquitto running via docker compose)
+"""
+
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import redis
+import redis.asyncio as aioredis
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 
 MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_CHANNEL = "sensor_readings"
+ANALYZED_CHANNEL = "sensor_analyzed"
 
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
-# Simple in-memory counter so /health can report activity without a DB
 stats = {"messages_relayed": 0}
 
 
@@ -37,16 +58,14 @@ def make_mqtt_client() -> mqtt.Client:
     client.on_connect = on_connect
     client.on_message = on_message
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
-    client.loop_start()  # background thread, doesn't block FastAPI's event loop
+    client.loop_start()
     return client
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: connect to MQTT and start the relay
     app.state.mqtt_client = make_mqtt_client()
     yield
-    # Shutdown: clean disconnect
     app.state.mqtt_client.loop_stop()
     app.state.mqtt_client.disconnect()
 
@@ -69,4 +88,38 @@ def health():
 
 @app.get("/")
 def root():
-    return {"service": "anomaly-detection-backend", "docs": "/docs"}
+    return {"service": "anomaly-detection-backend", "docs": "/docs", "dashboard": "/dashboard"}
+
+
+@app.websocket("/ws/dashboard")
+async def dashboard_ws(websocket: WebSocket):
+    """Streams AI-analyzed readings to the browser as they arrive.
+
+    Uses redis.asyncio (a separate async-native client from the sync one
+    above) because this handler runs inside FastAPI's event loop -- a
+    blocking pubsub.listen() here would freeze every other request.
+    """
+    await websocket.accept()
+    aio_client = aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+    pubsub = aio_client.pubsub()
+    await pubsub.subscribe(ANALYZED_CHANNEL)
+
+    try:
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            await websocket.send_text(message["data"])
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await pubsub.unsubscribe(ANALYZED_CHANNEL)
+        await pubsub.aclose()
+        await aio_client.aclose()
+
+
+# Serves dashboard/static/index.html at /dashboard
+# Path computed relative to THIS file, so it works no matter which
+# directory you launch uvicorn from.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DASHBOARD_DIR = PROJECT_ROOT / "dashboard" / "static"
+app.mount("/dashboard", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="dashboard")

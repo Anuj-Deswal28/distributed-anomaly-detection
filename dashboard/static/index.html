@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Anomaly Detection Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  body {
+    background: #111318;
+    color: #e6e6e6;
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    margin: 0;
+    padding: 24px;
+  }
+  h1 { font-size: 20px; font-weight: 500; margin: 0 0 4px; }
+  .status { font-size: 13px; color: #9a9a9a; margin-bottom: 20px; }
+  .status.connected { color: #5dcaa5; }
+  .status.disconnected { color: #e24b4a; }
+  .chart-card {
+    background: #1a1d24;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+  }
+  .chart-card h2 { font-size: 14px; font-weight: 500; margin: 0 0 12px; color: #cfcfcf; }
+  .legend { font-size: 12px; color: #9a9a9a; display: flex; gap: 16px; margin-top: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+  <h1>Distributed real-time anomaly detection</h1>
+  <div id="status" class="status disconnected">Connecting...</div>
+
+  <div class="chart-card">
+    <h2>Temperature</h2>
+    <canvas id="chart-temperature" height="90"></canvas>
+  </div>
+  <div class="chart-card">
+    <h2>Traffic</h2>
+    <canvas id="chart-traffic" height="90"></canvas>
+  </div>
+  <div class="chart-card">
+    <h2>Network throughput</h2>
+    <canvas id="chart-network_throughput" height="90"></canvas>
+  </div>
+  <div class="legend">
+    <span><span class="dot" style="background:#378ADD"></span>normal</span>
+    <span><span class="dot" style="background:#E24B4A"></span>detected anomaly (z-score or Isolation Forest)</span>
+    <span><span class="dot" style="background:#EF9F27"></span>missed (ground truth anomaly, not detected)</span>
+  </div>
+
+<script>
+const MAX_POINTS = 60;
+const sensorTypes = ["temperature", "traffic", "network_throughput"];
+const charts = {};
+const buffers = {};
+
+for (const type of sensorTypes) {
+  buffers[type] = { labels: [], values: [], colors: [] };
+  const ctx = document.getElementById("chart-" + type).getContext("2d");
+  charts[type] = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [{
+        data: [],
+        borderColor: "#378ADD",
+        borderWidth: 1.5,
+        pointBackgroundColor: [],
+        pointRadius: [],
+        pointHoverRadius: 5,
+        tension: 0.2,
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      scales: {
+        x: { display: false },
+        y: { ticks: { color: "#9a9a9a" }, grid: { color: "#2a2d35" } }
+      },
+      plugins: { legend: { display: false } }
+    }
+  });
+}
+
+function pointColor(reading) {
+  const detected = reading.zscore_anomaly || reading.iforest_anomaly;
+  if (detected) return "#E24B4A";
+  if (reading.is_anomaly) return "#EF9F27"; // ground truth but missed by both detectors
+  return "#378ADD";
+}
+
+function pointRadius(reading) {
+  return (reading.zscore_anomaly || reading.iforest_anomaly || reading.is_anomaly) ? 4 : 1.5;
+}
+
+function addReading(reading) {
+  const type = reading.sensor_type;
+  const chart = charts[type];
+  if (!chart) return;
+
+  const buf = buffers[type];
+  const label = new Date(reading.timestamp * 1000).toLocaleTimeString();
+
+  buf.labels.push(label);
+  buf.values.push(reading.value);
+  buf.colors.push(pointColor(reading));
+
+  if (buf.labels.length > MAX_POINTS) {
+    buf.labels.shift();
+    buf.values.shift();
+    buf.colors.shift();
+  }
+
+  chart.data.labels = buf.labels;
+  chart.data.datasets[0].data = buf.values;
+  chart.data.datasets[0].pointBackgroundColor = buf.colors;
+  chart.data.datasets[0].pointRadius = buf.values.map((_, i) =>
+    buf.colors[i] === "#378ADD" ? 1.5 : 4
+  );
+  chart.update("none");
+}
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/dashboard`);
+  const statusEl = document.getElementById("status");
+
+  ws.onopen = () => {
+    statusEl.textContent = "Connected, waiting for readings...";
+    statusEl.className = "status connected";
+  };
+  ws.onmessage = (event) => {
+    try {
+      const reading = JSON.parse(event.data);
+      addReading(reading);
+      statusEl.textContent = "Connected · live";
+    } catch (e) {
+      console.error("bad message", e);
+    }
+  };
+  ws.onclose = () => {
+    statusEl.textContent = "Disconnected, retrying in 3s...";
+    statusEl.className = "status disconnected";
+    setTimeout(connect, 3000);
+  };
+  ws.onerror = () => ws.close();
+}
+
+connect();
+</script>
+</body>
+</html>

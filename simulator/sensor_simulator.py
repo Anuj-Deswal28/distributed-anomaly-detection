@@ -15,11 +15,10 @@ class Reading:
     sensor_type: str
     value: float
     timestamp: float
-    is_anomaly: bool  # ground truth label, for later precision/recall scoring
+    is_anomaly: bool  
 
 
 class SensorSimulator:
-    """Base class -- each sensor type overrides generate_value()."""
 
     def __init__(self, sensor_id: str, sensor_type: str, anomaly_rate: float):
         self.sensor_id = sensor_id
@@ -42,11 +41,10 @@ class SensorSimulator:
 
 
 class TemperatureSensor(SensorSimulator):
-    """Slow day/night sine wave + noise. Anomaly = sudden spike or drop."""
 
     def generate_value(self) -> tuple[float, bool]:
         elapsed = time.time() - self.start_time
-        baseline = 22 + 5 * math.sin(elapsed / 60)  # ~1 min cycle for demo speed
+        baseline = 22 + 5 * math.sin(elapsed / 60)  
         noise = random.gauss(0, 0.3)
         value = baseline + noise
 
@@ -57,8 +55,6 @@ class TemperatureSensor(SensorSimulator):
 
 
 class TrafficSensor(SensorSimulator):
-    """Requests/sec with rush-hour-style peaks. Anomaly = burst or flatline."""
-
     def generate_value(self) -> tuple[float, bool]:
         elapsed = time.time() - self.start_time
         baseline = 50 + 30 * max(0, math.sin(elapsed / 45))
@@ -67,13 +63,12 @@ class TrafficSensor(SensorSimulator):
 
         if random.random() < self.anomaly_rate:
             if random.random() < 0.5:
-                return value * random.uniform(4, 8), True   # burst
-            return 0.0, True                                 # flatline
+                return value * random.uniform(4, 8), True   
+            return 0.0, True                                
         return value, False
 
 
 class ThroughputSensor(SensorSimulator):
-    """Steady baseline with occasional dips. Anomaly = sharp drop."""
 
     def generate_value(self) -> tuple[float, bool]:
         baseline = 100

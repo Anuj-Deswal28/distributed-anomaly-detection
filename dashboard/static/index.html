@@ -365,7 +365,7 @@
 
   <div class="legend">
     <span><span class="dot" style="background:#3FC7B0"></span>normal</span>
-    <span><span class="dot" style="background:#F0A93C"></span>detected anomaly</span>
+    <span><span class="dot" style="background:#F0A93C"></span>detected (z-score and isolation forest agree)</span>
     <span><span class="dot" style="background:#E2574C"></span>missed (ground truth, undetected)</span>
   </div>
 
@@ -429,7 +429,7 @@ for (const type of sensorTypes) {
 }
 
 function pointColor(reading) {
-  const detected = reading.zscore_anomaly || reading.iforest_anomaly;
+  const detected = reading.consensus_anomaly;
   if (detected) return COLOR_DETECTED;
   if (reading.is_anomaly) return COLOR_MISSED;
   return COLOR_NORMAL;
@@ -467,7 +467,7 @@ function addReading(reading) {
   document.getElementById("reading-" + type).textContent = formatValue(type, reading.value);
 
   stats.total++;
-  if (reading.zscore_anomaly || reading.iforest_anomaly) {
+  if (reading.consensus_anomaly) {
     stats.detected++;
     perSensorFlags[type]++;
   } else if (reading.is_anomaly) {

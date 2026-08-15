@@ -21,11 +21,11 @@ LOCAL_SPAN = 10
 
 
 def causal_moving_average(arr: np.ndarray, span: int) -> np.ndarray:
-    ma = np.empty(len(arr))
+    trend = np.empty(len(arr))
     for i in range(len(arr)):
         start = max(0, i - span + 1)
-        ma[i] = np.mean(arr[start:i + 1])
-    return ma
+        trend[i] = np.median(arr[start:i + 1])
+    return trend
 
 
 class Scoreboard:
@@ -107,8 +107,8 @@ class SensorDetector:
         if len(self.window) == 0:
             return 0.0
         recent = list(self.window)[-LOCAL_SPAN:]
-        local_mean = np.mean(recent)
-        return value - local_mean
+        local_median = np.median(recent)
+        return value - local_median
 
     def iforest_flag(self, value: float) -> bool:
         if self.model is None:
@@ -168,6 +168,7 @@ def handle_reading(raw_payload: str, publisher: redis.Redis):
         **reading,
         "zscore_anomaly": bool(zscore_pred),
         "iforest_anomaly": bool(iforest_pred),
+        "consensus_anomaly": bool(zscore_pred and iforest_pred),
     }
     publisher.publish(ANALYZED_CHANNEL, json.dumps(analyzed))
 

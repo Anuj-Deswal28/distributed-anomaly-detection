@@ -1,15 +1,3 @@
-"""
-Day 3 verification tool.
-
-Subscribes to all sensor topics (sensors/#) and prints whatever arrives.
-This is just to prove the simulator's MQTT publishing works end-to-end --
-the FastAPI backend (Day 4+) will be the real subscriber that does
-something useful with these messages.
-
-Run in a separate terminal while sensor_simulator.py is running:
-    python mqtt_subscriber.py
-"""
-
 import argparse
 import paho.mqtt.client as mqtt
 

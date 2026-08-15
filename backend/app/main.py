@@ -1,22 +1,3 @@
-"""
-FastAPI backend.
-
-Two jobs:
-  1. Subscribe to MQTT (sensors/#) and republish each reading into Redis on
-     the "sensor_readings" channel -- unchanged from Day 4.
-  2. Expose a WebSocket at /ws/dashboard that subscribes to Redis on the
-     "sensor_analyzed" channel (published by ai_engine/detector.py) and
-     forwards each message to any connected browser in real time.
-
-FastAPI never processes sensor data itself -- it's a relay in both
-directions. That keeps ingestion, AI processing, and the dashboard as
-three independently swappable pieces, all only ever talking through Redis.
-
-Run:
-    uvicorn app.main:app --reload --port 8000
-(from the backend/ folder, with Redis + Mosquitto running via docker compose)
-"""
-
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -93,12 +74,6 @@ def root():
 
 @app.websocket("/ws/dashboard")
 async def dashboard_ws(websocket: WebSocket):
-    """Streams AI-analyzed readings to the browser as they arrive.
-
-    Uses redis.asyncio (a separate async-native client from the sync one
-    above) because this handler runs inside FastAPI's event loop -- a
-    blocking pubsub.listen() here would freeze every other request.
-    """
     await websocket.accept()
     aio_client = aioredis.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     pubsub = aio_client.pubsub()
@@ -116,10 +91,6 @@ async def dashboard_ws(websocket: WebSocket):
         await pubsub.aclose()
         await aio_client.aclose()
 
-
-# Serves dashboard/static/index.html at /dashboard
-# Path computed relative to THIS file, so it works no matter which
-# directory you launch uvicorn from.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DASHBOARD_DIR = PROJECT_ROOT / "dashboard" / "static"
 app.mount("/dashboard", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="dashboard")
